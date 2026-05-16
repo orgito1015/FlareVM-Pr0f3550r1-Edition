@@ -118,7 +118,11 @@ Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" -Nam
 New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" -Name "DisableAntiSpyware" -Value 1 -PropertyType DWORD -Force
 
 # Disable real-time protection
-Set-MpPreference -DisableRealtimeMonitoring $true
+try {
+    Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
+} catch {
+    Write-Host "[!] Failed to disable Defender real-time monitoring: $($_.Exception.Message)" -ForegroundColor Yellow
+}
 
 # Stop and disable Windows Defender service
 try {
@@ -524,7 +528,8 @@ if ($noGui.IsPresent) {
 		}
 
 		if (-not $script:checksPassed){
-			Write-Host "[!] Non-mandatory checks reported warnings; continuing in non-interactive mode." -ForegroundColor Yellow
+			Write-Host "[!] Non-mandatory checks reported warnings; exiting in non-interactive mode." -ForegroundColor Red
+			exit 1
 		}
 
 		Write-Host "[+] Setting password to never expire to avoid that a password expiration blocks the installation..."
@@ -1273,12 +1278,9 @@ Write-Host "Configuration file path: $configPath"
 if (-Not (Test-Path $configPath)) {
     Write-Host "`t[!] Configuration file missing: " $configPath -ForegroundColor Red
     Write-Host "`t[-] Please download config.xml from $configPathUrl to your desktop" -ForegroundColor Yellow
-    if (-Not (Test-Path $configPath)) {
-        Write-Host "`t[!] Configuration file still missing: " $configPath -ForegroundColor Red
-        Write-Host "`t[!] Exiting..." -ForegroundColor Red
-        Start-Sleep 3
-        exit 1
-    }
+    Write-Host "`t[!] Exiting..." -ForegroundColor Red
+    Start-Sleep 3
+    exit 1
 }
 
 # Get config contents
