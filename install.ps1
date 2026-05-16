@@ -1238,12 +1238,13 @@ $Boxstarter.NoPassword = $noPassword.IsPresent
 $Boxstarter.AutoLogin = $true
 $Boxstarter.SuppressLogging = $True
 $VerbosePreference = "SilentlyContinue"
-Set-BoxstarterConfig -NugetSources "$desktopPath;.;https://www.myget.org/F/vm-packages/api/v2;https://myget.org/F/vm-packages/api/v2;https://chocolatey.org/api/v2"
+Set-BoxstarterConfig -NugetSources "https://www.myget.org/F/vm-packages/api/v2;https://myget.org/F/vm-packages/api/v2;https://community.chocolatey.org/api/v2"
 Set-WindowsExplorerOptions -EnableShowHiddenFilesFoldersDrives -EnableShowProtectedOSFiles -EnableShowFileExtensions -EnableShowFullPathInTitleBar
 
 # Set Chocolatey options
 Write-Host "[+] Updating Chocolatey settings..."
-choco sources add -n="vm-packages" -s "$desktopPath;.;https://www.myget.org/F/vm-packages/api/v2;https://myget.org/F/vm-packages/api/v2" --priority 1
+choco sources remove -n="vm-packages" --yes 2>$null | Out-Null
+choco sources add -n="vm-packages" -s "https://www.myget.org/F/vm-packages/api/v2" --priority 1
 choco feature enable -n allowGlobalConfirmation
 choco feature enable -n allowEmptyChecksums
 $cache = "${Env:LocalAppData}\ChocoCache"
@@ -2012,11 +2013,34 @@ following command:
 # Begin the package install
 Write-Host "[+] Beginning install of configured packages..." -ForegroundColor Green
 Write-Log "Beginning install of configured packages (profile: $installProfile)"
-$PackageName = "installer.vm"
+
+function Get-InstalledPackageNames {
+    $installedRaw = choco list --local-only -r 2>$null
+    return @($installedRaw | ForEach-Object { ($_ -split '\|')[0].ToLower() })
+}
+
+$attemptedPackages = @($configXml.config.packages.package | ForEach-Object { $_.name })
+if ($attemptedPackages.Count -eq 0) {
+    throw "No packages were found in config.xml after profile/filter processing."
+}
+
+$installerPackage = "installer.vm"
 if ($noPassword.IsPresent) {
-    Install-BoxstarterPackage -packageName $PackageName
+    Install-BoxstarterPackage -packageName $installerPackage
 } else {
-    Install-BoxstarterPackage -packageName $PackageName -credential $credentials
+    Install-BoxstarterPackage -packageName $installerPackage -credential $credentials
+}
+
+$installedAfterInstaller = Get-InstalledPackageNames
+$missingPackages = @($attemptedPackages | Where-Object { $_.ToLower() -notin $installedAfterInstaller })
+if ($missingPackages.Count -gt 0) {
+    Write-Host "[!] installer.vm finished, but $($missingPackages.Count) configured package(s) are still missing. Installing missing packages directly..." -ForegroundColor Yellow
+    Write-Log "installer.vm left $($missingPackages.Count) package(s) missing; running direct-install fallback." "WARN"
+
+    foreach ($pkg in $missingPackages) {
+        Write-Host "`t[+] Installing fallback package: $pkg" -ForegroundColor Cyan
+        choco install $pkg -y --no-progress -s "https://www.myget.org/F/vm-packages/api/v2;https://myget.org/F/vm-packages/api/v2;https://community.chocolatey.org/api/v2"
+    }
 }
 
 # Post-install: generate summary from Chocolatey lib directories
@@ -2025,7 +2049,6 @@ $libBadPath = "${Env:ChocolateyInstall}\lib-bad"
 if (Test-Path $libBadPath) {
     $failedPackages = Get-ChildItem -Path $libBadPath -Directory | Select-Object -ExpandProperty Name
 }
-$attemptedPackages = $configXml.config.packages.package.name
 Show-InstallSummary -attempted $attemptedPackages -failed $failedPackages -skipped @()
 
 # Create desktop README shortcut
