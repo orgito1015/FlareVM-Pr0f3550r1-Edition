@@ -1320,7 +1320,7 @@ function Get-Packages-Categories {
    $packagesByCategory=@{}
    do {
 	  # Download the XML from MyGet API
-	  Save-FileFromUrl -fileSource $vmPackagesUrl -fileDestination $vmPackagesFile --exitOnError
+	  Save-FileFromUrl -fileSource $vmPackagesUrl -fileDestination $vmPackagesFile -exitOnError
 
 	  # Load the XML content
 	  [xml]$vm_packages = Get-Content $vmPackagesFile
@@ -2073,7 +2073,7 @@ $libBadPath = "${Env:ChocolateyInstall}\lib-bad"
 if (Test-Path $libBadPath) {
     $failedPackages = Get-ChildItem -Path $libBadPath -Directory | Select-Object -ExpandProperty Name
 }
-$failedPackages = @($failedPackages + $fallbackFailedPackages | Sort-Object -Unique)
+$failedPackages = @(@($failedPackages) + @($fallbackFailedPackages) | Sort-Object -Unique)
 Show-InstallSummary -attempted $attemptedPackages -failed $failedPackages -skipped @()
 
 # Create desktop README shortcut
