@@ -106,23 +106,27 @@ param (
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-# Force unattended mode
-$noGui = $true
-$noWait = $true
-$noPassword = $true
-if ([string]::IsNullOrEmpty($installProfile)) { $installProfile = "Full" }
+# Force unattended mode by default
+if (-not $PSBoundParameters.ContainsKey('noGui')) { $noGui = $true }
+if (-not $PSBoundParameters.ContainsKey('noWait')) { $noWait = $true }
+if (-not $PSBoundParameters.ContainsKey('noPassword')) { $noPassword = $true }
+if (-not $PSBoundParameters.ContainsKey('installProfile') -or [string]::IsNullOrEmpty($installProfile)) { $installProfile = "Full" }
 
 # Disable Windows Defender via registry
 New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" -Force | Out-Null
-Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" -Name "DisableAntiSpyware" -Value 1 -Force
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" -Name "DisableAntiSpyware" -Value 1 -Force -ErrorAction SilentlyContinue
 New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" -Name "DisableAntiSpyware" -Value 1 -PropertyType DWORD -Force
 
 # Disable real-time protection
 Set-MpPreference -DisableRealtimeMonitoring $true
 
 # Stop and disable Windows Defender service
-Stop-Service -Name WinDefend -Force
-Set-Service -Name WinDefend -StartupType Disabled
+try {
+    Stop-Service -Name WinDefend -Force -ErrorAction SilentlyContinue
+    Set-Service -Name WinDefend -StartupType Disabled -ErrorAction SilentlyContinue
+} catch {
+    Write-Host "[!] Failed to stop/disable WinDefend service: $($_.Exception.Message)" -ForegroundColor Yellow
+}
 
 # Function to download files and handle errors consistently
 function Save-FileFromUrl {
