@@ -529,6 +529,7 @@ if ($noGui.IsPresent) {
 
 		if (-not $script:checksPassed){
 			Write-Host "[!] Non-mandatory checks reported warnings; continuing in non-interactive mode." -ForegroundColor Yellow
+			Write-Log "Non-mandatory checks reported warnings; continuing in non-interactive mode." "WARN"
 		}
 
 		Write-Host "[+] Setting password to never expire to avoid that a password expiration blocks the installation..."
@@ -1276,7 +1277,7 @@ Write-Host "Configuration file path: $configPath"
 # Check the configuration file exists
 if (-Not (Test-Path $configPath)) {
     Write-Host "`t[!] Configuration file missing: " $configPath -ForegroundColor Red
-    Write-Host "`t[-] Please download config.xml from $configPathUrl to your desktop" -ForegroundColor Yellow
+    Write-Host "`t[-] Please download config.xml from $configSource to your desktop" -ForegroundColor Yellow
     Write-Host "`t[!] Exiting..." -ForegroundColor Red
     Start-Sleep 3
     exit 1
