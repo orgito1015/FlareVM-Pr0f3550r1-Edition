@@ -110,12 +110,12 @@ $ProgressPreference = 'SilentlyContinue'
 if (-not $PSBoundParameters.ContainsKey('noGui')) { $noGui = $true }
 if (-not $PSBoundParameters.ContainsKey('noWait')) { $noWait = $true }
 if (-not $PSBoundParameters.ContainsKey('noPassword')) { $noPassword = $true }
-if (-not $PSBoundParameters.ContainsKey('installProfile') -or [string]::IsNullOrEmpty($installProfile)) { $installProfile = "Full" }
+if (-not $PSBoundParameters.ContainsKey('installProfile') -or [string]::IsNullOrEmpty($installProfile)) { $installProfile = "Minimal" }
 
 # Disable Windows Defender via registry
 New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" -Force | Out-Null
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" -Name "DisableAntiSpyware" -Value 1 -Force -ErrorAction SilentlyContinue
-New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" -Name "DisableAntiSpyware" -Value 1 -PropertyType DWORD -Force
+New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" -Name "DisableAntiSpyware" -Value 1 -PropertyType DWORD -Force -ErrorAction SilentlyContinue
 
 # Disable real-time protection
 try {
@@ -528,8 +528,7 @@ if ($noGui.IsPresent) {
 		}
 
 		if (-not $script:checksPassed){
-			Write-Host "[!] Non-mandatory checks reported warnings; exiting in non-interactive mode." -ForegroundColor Red
-			exit 1
+			Write-Host "[!] Non-mandatory checks reported warnings; continuing in non-interactive mode." -ForegroundColor Yellow
 		}
 
 		Write-Host "[+] Setting password to never expire to avoid that a password expiration blocks the installation..."
