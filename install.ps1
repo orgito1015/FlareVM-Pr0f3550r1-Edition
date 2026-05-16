@@ -1238,13 +1238,19 @@ $Boxstarter.NoPassword = $noPassword.IsPresent
 $Boxstarter.AutoLogin = $true
 $Boxstarter.SuppressLogging = $True
 $VerbosePreference = "SilentlyContinue"
-Set-BoxstarterConfig -NugetSources "https://www.myget.org/F/vm-packages/api/v2;https://myget.org/F/vm-packages/api/v2;https://community.chocolatey.org/api/v2"
+$vmPackagesSource = "https://www.myget.org/F/vm-packages/api/v2"
+$communitySource = "https://community.chocolatey.org/api/v2"
+$packageSources = "$vmPackagesSource;$communitySource"
+Set-BoxstarterConfig -NugetSources $packageSources
 Set-WindowsExplorerOptions -EnableShowHiddenFilesFoldersDrives -EnableShowProtectedOSFiles -EnableShowFileExtensions -EnableShowFullPathInTitleBar
 
 # Set Chocolatey options
 Write-Host "[+] Updating Chocolatey settings..."
-choco sources remove -n="vm-packages" --yes 2>$null | Out-Null
-choco sources add -n="vm-packages" -s "https://www.myget.org/F/vm-packages/api/v2" --priority 1
+$existingSources = @(choco source list -r 2>$null | ForEach-Object { ($_ -split '\|')[0] })
+if ($existingSources -contains "vm-packages") {
+    choco sources remove -n="vm-packages" --yes | Out-Null
+}
+choco sources add -n="vm-packages" -s $vmPackagesSource --priority 1
 choco feature enable -n allowGlobalConfirmation
 choco feature enable -n allowEmptyChecksums
 $cache = "${Env:LocalAppData}\ChocoCache"
@@ -2023,6 +2029,7 @@ $attemptedPackages = @($configXml.config.packages.package | ForEach-Object { $_.
 if ($attemptedPackages.Count -eq 0) {
     throw "No packages were found in config.xml after profile/filter processing."
 }
+$attemptedPackagesLower = @($attemptedPackages | ForEach-Object { $_.ToLower() })
 
 $installerPackage = "installer.vm"
 if ($noPassword.IsPresent) {
@@ -2032,14 +2039,31 @@ if ($noPassword.IsPresent) {
 }
 
 $installedAfterInstaller = Get-InstalledPackageNames
-$missingPackages = @($attemptedPackages | Where-Object { $_.ToLower() -notin $installedAfterInstaller })
+$missingPackages = @(
+    for ($i = 0; $i -lt $attemptedPackages.Count; $i++) {
+        if ($attemptedPackagesLower[$i] -notin $installedAfterInstaller) {
+            $attemptedPackages[$i]
+        }
+    }
+)
+$fallbackFailedPackages = @()
 if ($missingPackages.Count -gt 0) {
     Write-Host "[!] installer.vm finished, but $($missingPackages.Count) configured package(s) are still missing. Installing missing packages directly..." -ForegroundColor Yellow
     Write-Log "installer.vm left $($missingPackages.Count) package(s) missing; running direct-install fallback." "WARN"
 
     foreach ($pkg in $missingPackages) {
-        Write-Host "`t[+] Installing fallback package: $pkg" -ForegroundColor Cyan
-        choco install $pkg -y --no-progress -s "https://www.myget.org/F/vm-packages/api/v2;https://myget.org/F/vm-packages/api/v2;https://community.chocolatey.org/api/v2"
+        try {
+            Write-Host "`t[+] Installing fallback package: $pkg" -ForegroundColor Cyan
+            choco install $pkg -y --no-progress -s $packageSources
+            if ($LASTEXITCODE -ne 0) {
+                throw "choco exited with code $LASTEXITCODE"
+            }
+            Write-Log "Fallback install succeeded: $pkg"
+        } catch {
+            $fallbackFailedPackages += $pkg
+            Write-Host "`t[!] Fallback install failed for ${pkg}: $_" -ForegroundColor Red
+            Write-Log "Fallback install failed for ${pkg}: $_" "ERROR"
+        }
     }
 }
 
@@ -2049,6 +2073,7 @@ $libBadPath = "${Env:ChocolateyInstall}\lib-bad"
 if (Test-Path $libBadPath) {
     $failedPackages = Get-ChildItem -Path $libBadPath -Directory | Select-Object -ExpandProperty Name
 }
+$failedPackages = @($failedPackages + $fallbackFailedPackages | Sort-Object -Unique)
 Show-InstallSummary -attempted $attemptedPackages -failed $failedPackages -skipped @()
 
 # Create desktop README shortcut
